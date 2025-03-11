@@ -1,3 +1,4 @@
+from django.apps import apps
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
@@ -7,12 +8,12 @@ from graphql import ResolveInfo
 import core
 from core import models as core_models
 from core.models import HistoryBusinessModel, User, HistoryModel
-from individual.models import Individual
-from social_protection.models import Beneficiary
 
 
 def check_if_user_or_individual(generic_field):
-    if not isinstance(generic_field, (User, Individual, Beneficiary)):
+    individual = apps.get_model('individual', 'Individual')
+    beneficiary = apps.get_model('social_protection', 'Beneficiary')
+    if not isinstance(generic_field, (User, individual, beneficiary)):
         raise ValueError('Reporter must be either a User or a Beneficiary or an Individual.')
 
 

@@ -1,13 +1,11 @@
+from django.apps import apps
 from django.test import TestCase
-from core.models import MutationLog
+
 from graphene import Schema
 from graphene.test import Client
+from core.datetimes.ad_datetime import datetime
+from core.models import MutationLog
 from core.test_helpers import create_test_interactive_user
-from individual.models import Individual
-from individual.tests.data import (
-    service_add_individual_payload,
-    service_group_individual_payload
-)
 from grievance_social_protection.models import Comment
 from grievance_social_protection.schema import Query, Mutation
 from grievance_social_protection.tests.gql_payloads import (
@@ -87,11 +85,23 @@ class GQLTicketCommentCreateTestCase(TestCase):
 
     @classmethod
     def __create_individual(cls):
-        object_data = {
-            **service_add_individual_payload
+        individual_model = apps.get_model('individual', 'Individual')
+
+        add_individual_payload = {
+            'first_name': 'TestFN',
+            'last_name': 'TestLN',
+            'dob': datetime.now(),
+            'json_ext': {
+                'key': 'value',
+                'key2': 'value2'
+            }
         }
 
-        individual = Individual(**object_data)
+        object_data = {
+            **add_individual_payload
+        }
+
+        individual = individual_model(**object_data)
         individual.save(username=cls.user.username)
 
         return individual

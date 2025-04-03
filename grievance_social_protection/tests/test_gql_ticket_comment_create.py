@@ -13,12 +13,11 @@ from grievance_social_protection.tests.gql_payloads import (
     gql_mutation_create_comment_anonymous_user
 )
 from grievance_social_protection.tests.test_helpers import create_ticket
+from core.models.openimis_graphql_test_case import openIMISGraphQLTestCase, BaseTestContext
+from uuid import uuid4
 
+class GQLTicketCommentCreateTestCase(openIMISGraphQLTestCase):
 
-class GQLTicketCommentCreateTestCase(TestCase):
-    class GQLContext:
-        def __init__(self, user):
-            self.user = user
 
     user = None
 
@@ -43,10 +42,10 @@ class GQLTicketCommentCreateTestCase(TestCase):
         cls.type = "individual"
 
         cls.gql_client = Client(gql_schema)
-        cls.gql_context = cls.GQLContext(cls.user)
+        cls.gql_context = BaseTestContext(cls.user)
 
     def test_create_comment_individual_success(self):
-        mutation_id = "99g453h5g92h22xc33"
+        mutation_id = str(uuid4())
         payload = gql_mutation_create_comment % (
             self.comment,
             self.existing_ticket.id,
@@ -55,7 +54,7 @@ class GQLTicketCommentCreateTestCase(TestCase):
             mutation_id
         )
 
-        _ = self.gql_client.execute(payload, context=self.gql_context)
+        _ = self.gql_client.execute(payload, context=self.gql_context.get_request())
         mutation_log = MutationLog.objects.get(client_mutation_id=mutation_id)
         self.assertFalse(mutation_log.error)
         comment = Comment.objects.get(ticket_id=self.existing_ticket.id)
@@ -66,14 +65,14 @@ class GQLTicketCommentCreateTestCase(TestCase):
         self.assertIn(self.type, str(comment.commenter_type))
 
     def test_create_comment_anonymous_user_success(self):
-        mutation_id = "99g453h5g92h04ww98"
+        mutation_id = str(uuid4())
         payload = gql_mutation_create_comment_anonymous_user % (
             self.comment,
             self.existing_ticket.id,
             mutation_id
         )
 
-        _ = self.gql_client.execute(payload, context=self.gql_context)
+        _ = self.gql_client.execute(payload, context=self.gql_context.get_request())
         mutation_log = MutationLog.objects.get(client_mutation_id=mutation_id)
         self.assertFalse(mutation_log.error)
         comment = Comment.objects.get(ticket_id=self.existing_ticket.id)

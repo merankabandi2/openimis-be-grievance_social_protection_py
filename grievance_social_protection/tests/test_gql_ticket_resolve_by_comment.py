@@ -13,12 +13,11 @@ from grievance_social_protection.tests.test_helpers import (
     create_ticket,
     create_comment_for_existing_ticket
 )
+from core.models.openimis_graphql_test_case import openIMISGraphQLTestCase, BaseTestContext
 
 
-class GQLTicketResolveByCommentTestCase(TestCase):
-    class GQLContext:
-        def __init__(self, user):
-            self.user = user
+class GQLTicketResolveByCommentTestCase(openIMISGraphQLTestCase):
+
 
     user = None
 
@@ -39,7 +38,7 @@ class GQLTicketResolveByCommentTestCase(TestCase):
         )
 
         cls.gql_client = Client(gql_schema)
-        cls.gql_context = cls.GQLContext(cls.user)
+        cls.gql_context = BaseTestContext(cls.user)
 
     def test_resolve_ticket_by_comment_success(self):
         mutation_id = "99g154h5b92h11sd33"
@@ -48,7 +47,7 @@ class GQLTicketResolveByCommentTestCase(TestCase):
             mutation_id
         )
 
-        _ = self.gql_client.execute(payload, context=self.gql_context)
+        _ = self.gql_client.execute(payload, context=self.gql_context.get_request())
         mutation_log = MutationLog.objects.get(client_mutation_id=mutation_id)
         comment = Comment.objects.get(id=self.existing_comment.id)
         ticket = Ticket.objects.get(id=self.existing_ticket.id)

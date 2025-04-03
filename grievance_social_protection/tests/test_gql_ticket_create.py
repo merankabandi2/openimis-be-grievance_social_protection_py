@@ -6,12 +6,11 @@ from core.test_helpers import create_test_interactive_user
 from grievance_social_protection.models import Ticket
 from grievance_social_protection.schema import Query, Mutation
 from grievance_social_protection.tests.gql_payloads import gql_mutation_create_ticket
+from core.models.openimis_graphql_test_case import openIMISGraphQLTestCase, BaseTestContext
 
 
-class GQLTicketCreateTestCase(TestCase):
-    class GQLContext:
-        def __init__(self, user):
-            self.user = user
+class GQLTicketCreateTestCase(openIMISGraphQLTestCase):
+
 
     user = None
 
@@ -42,7 +41,7 @@ class GQLTicketCreateTestCase(TestCase):
         cls.flags = "Default"
 
         cls.gql_client = Client(gql_schema)
-        cls.gql_context = cls.GQLContext(cls.user)
+        cls.gql_context = BaseTestContext(cls.user)
 
     def test_create_ticket_success(self):
         mutation_id = "99g453h5g92h04gh88"
@@ -57,7 +56,7 @@ class GQLTicketCreateTestCase(TestCase):
             mutation_id
         )
 
-        _ = self.gql_client.execute(payload, context=self.gql_context)
+        _ = self.gql_client.execute(payload, context=self.gql_context.get_request())
         mutation_log = MutationLog.objects.get(client_mutation_id=mutation_id)
         self.assertFalse(mutation_log.error)
         tickets = Ticket.objects.filter(title=self.title)
@@ -83,7 +82,7 @@ class GQLTicketCreateTestCase(TestCase):
             mutation_id
         )
 
-        _ = self.gql_client.execute(payload, context=self.gql_context)
+        _ = self.gql_client.execute(payload, context=self.gql_context.get_request())
         mutation_log = MutationLog.objects.get(client_mutation_id=mutation_id)
         self.assertTrue(mutation_log.error)
         tickets = Ticket.objects.filter(title=self.title)
@@ -102,7 +101,7 @@ class GQLTicketCreateTestCase(TestCase):
             mutation_id
         )
 
-        _ = self.gql_client.execute(payload, context=self.gql_context)
+        _ = self.gql_client.execute(payload, context=self.gql_context.get_request())
         mutation_log = MutationLog.objects.get(client_mutation_id=mutation_id)
         self.assertTrue(mutation_log.error)
         tickets = Ticket.objects.filter(title=self.title)
@@ -121,7 +120,7 @@ class GQLTicketCreateTestCase(TestCase):
             mutation_id
         )
 
-        _ = self.gql_client.execute(payload, context=self.gql_context)
+        _ = self.gql_client.execute(payload, context=self.gql_context.get_request())
         mutation_log = MutationLog.objects.get(client_mutation_id=mutation_id)
         self.assertTrue(mutation_log.error)
         tickets = Ticket.objects.filter(title=self.title)

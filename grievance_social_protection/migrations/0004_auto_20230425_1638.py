@@ -12,7 +12,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('core', '0016_add_last_login_on_interactive_user'),
-        ('insuree', '0013_auto_20211103_1023'),
         ('location', '0008_add_enrollment_officer_gql_query_location_right'),
         ('grievance_social_protection', '0003_auto_20221130_1620'),
     ]
@@ -85,7 +84,7 @@ class Migration(migrations.Migration):
                 ('date_submitted', core.fields.DateField(blank=True, db_column='Date_Submission', default=datetime.datetime.now)),
                 ('category', models.ForeignKey(blank=True, db_column='CategoryID', null=True, on_delete=django.db.models.deletion.DO_NOTHING, related_name='tickets', to='grievance_social_protection.category')),
                 ('event_location', models.ForeignKey(blank=True, db_column='EventLocationId', null=True, on_delete=django.db.models.deletion.DO_NOTHING, related_name='event_location', to='location.location')),
-                ('insuree', models.ForeignKey(blank=True, db_column='InsureeID', null=True, on_delete=django.db.models.deletion.DO_NOTHING, related_name='tickets', to='insuree.insuree')),
+                ('insuree', models.IntegerField(blank=True, db_column='InsureeID', null=True)),
             ],
             options={
                 'db_table': 'tblTicket',

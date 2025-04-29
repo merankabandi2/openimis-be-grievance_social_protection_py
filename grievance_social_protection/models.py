@@ -35,6 +35,48 @@ class Ticket(HistoryBusinessModel):
     reporter_id = models.CharField(max_length=255, null=True, blank=True)
     reporter = GenericForeignKey('reporter_type', 'reporter_id')
 
+    # Reporter details
+    is_beneficiary = models.CharField(max_length=10, blank=True, null=True)
+    non_beneficiary_details = models.TextField(blank=True, null=True)
+    gender = models.CharField(max_length=10, blank=True, null=True)
+    is_batwa = models.CharField(max_length=10, blank=True, null=True)
+    beneficiary_type = models.CharField(max_length=50, blank=True, null=True)
+    other_beneficiary_type = models.CharField(max_length=255, blank=True, null=True)
+    is_anonymous = models.CharField(max_length=10, blank=True, null=True)
+    reporter_name = models.CharField(max_length=255, blank=True, null=True)
+    reporter_phone = models.CharField(max_length=20, blank=True, null=True)
+    cni_number = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Location details - reusing gps_location as Localisation from form
+    gps_location = models.CharField(max_length=255, blank=True, null=True) 
+    province = models.CharField(max_length=50, blank=True, null=True)
+    commune = models.CharField(max_length=50, blank=True, null=True)
+    zone = models.CharField(max_length=50, blank=True, null=True)
+    colline = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Complaint details - reuse description field for description_plainte
+    # description field already exists
+    is_project_related = models.CharField(max_length=10, blank=True, null=True)
+    
+    # Subcategory details - most can be stored as JSON in category field
+    vbg_type = models.CharField(max_length=255, blank=True, null=True)
+    vbg_detail = models.TextField(blank=True, null=True)
+    viol_hospital = models.CharField(max_length=10, blank=True, null=True)
+    viol_complaint = models.CharField(max_length=10, blank=True, null=True)
+    viol_support = models.CharField(max_length=10, blank=True, null=True)
+    
+    exclusion_type = models.CharField(max_length=255, blank=True, null=True)
+    exclusion_detail = models.TextField(blank=True, null=True)
+    
+    payment_type = models.CharField(max_length=255, blank=True, null=True)
+    payment_detail = models.TextField(blank=True, null=True)
+    
+    phone_type = models.CharField(max_length=255, blank=True, null=True)
+    phone_detail = models.TextField(blank=True, null=True)
+    
+    account_type = models.CharField(max_length=255, blank=True, null=True)
+    account_detail = models.TextField(blank=True, null=True)
+
     attending_staff = models.ForeignKey(User, models.DO_NOTHING, blank=True, null=True)
     date_of_incident = models.DateField(blank=True, null=True)
     status = models.CharField(
@@ -43,10 +85,26 @@ class Ticket(HistoryBusinessModel):
     priority = models.CharField(max_length=20, blank=True, null=True)
     due_date = models.DateField(blank=True, null=True)
 
+    # Category field to store main category from form
     category = models.CharField(max_length=255, blank=True, null=True)
     flags = models.CharField(max_length=255, blank=True, null=True)
     channel = models.CharField(max_length=255, blank=True, null=True)
+    other_channel = models.CharField(max_length=255, blank=True, null=True)
+    
+    # Receiver details
+    receiver_name = models.CharField(max_length=255, blank=True, null=True)
+    receiver_function = models.CharField(max_length=255, blank=True, null=True)
+    receiver_phone = models.CharField(max_length=20, blank=True, null=True)
+    
+    # Resolution details
+    is_resolved = models.CharField(max_length=10, blank=True, null=True)
+    resolver_name = models.CharField(max_length=255, blank=True, null=True)
+    resolver_function = models.CharField(max_length=255, blank=True, null=True)
     resolution = models.CharField(max_length=255, blank=True, null=True)
+    resolution_details = models.TextField(blank=True, null=True)
+    
+    # Form identifiers
+    form_id = models.CharField(max_length=255, blank=True, null=True)
 
     def clean(self):
         super().clean()

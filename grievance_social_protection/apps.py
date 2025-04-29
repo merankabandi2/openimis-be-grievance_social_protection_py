@@ -21,14 +21,115 @@ DEFAULT_CFG = {
     "gql_mutation_resolve_grievance_perms": ["127006"],
     "tickets_attachments_root_path": None,
 
-    "grievance_types": [DEFAULT_STRING, 'Category A', 'Category B'],
-    "grievance_flags": [DEFAULT_STRING, 'Flag A', 'Flag B'],
-    "grievance_channels": [DEFAULT_STRING, 'Channel A', 'Channel B'],
+    # Main grievance categories from form
+    "grievance_types": [
+        DEFAULT_STRING, 
+        # Sensitive categories
+        "violence_vbg", 
+        "corruption", 
+        "accident_negligence", 
+        "discrimination_ethnie_religion", 
+        # Special categories
+        "erreur_exclusion", 
+        "erreur_inclusion", 
+        "maladie_mentale", 
+        # Non-sensitive categories
+        "paiement", 
+        "telephone", 
+        "compte", 
+        "information"
+    ],
+    
+    # Flags for sensitive/special cases
+    "grievance_flags": [
+        DEFAULT_STRING, 
+        "SENSITIVE", 
+        "SPECIAL"
+    ],
+    
+    # Communication channels
+    "grievance_channels": [
+        DEFAULT_STRING, 
+        "telephone", 
+        "sms", 
+        "en_personne", 
+        "courrier_simple", 
+        "courrier_electronique", 
+        "ligne_verte", 
+        "boite_suggestion", 
+        "autre"
+    ],
+    
+    # VBG subcategories
+    "vbg_types": [
+        "viol",
+        "mariage_force_precoce",
+        "violence_abus",
+        "sante_maternelle",
+        "autre",
+        "autre_"
+    ],
+    
+    # Exclusion error subcategories
+    "exclusion_types": [
+        "demande_insertion",
+        "probleme_identification",
+        "autre"
+    ],
+    
+    # Payment problem subcategories
+    "payment_types": [
+        "paiement_pas_recu",
+        "paiement_en_retard",
+        "paiement_incomplet",
+        "vole",
+        "autre"
+    ],
+    
+    # Phone problem subcategories
+    "phone_types": [
+        "perdu",
+        "pas_de_reseau",
+        "allume_pas_batterie",
+        "recoit_pas_tm",
+        "mot_de_passe_oublie",
+        "autre"
+    ],
+    
+    # Account problem subcategories
+    "account_types": [
+        "non_active",
+        "bloque",
+        "autre"
+    ],
+    
+    # Beneficiary types
+    "beneficiary_types": [
+        "ordinaire",
+        "securite_alimentaire_cerc",
+        "chocs_climatiques",
+        "autre"
+    ],
+
     "default_responses": {DEFAULT_STRING: DEFAULT_STRING},
     "grievance_anonymized_fields": {DEFAULT_STRING: []},
     # CRON timedelta: {days},{hours}
     "resolution_times": DEFAULT_TIME_RESOLUTION,
-    "default_resolution": {DEFAULT_STRING: DEFAULT_TIME_RESOLUTION, 'Category A': '4,0', 'Category B': '6,12'},
+    "default_resolution": {
+        DEFAULT_STRING: DEFAULT_TIME_RESOLUTION, 
+        # Sensitive cases (high priority)
+        "violence_vbg": "2,0", 
+        "corruption": "3,0", 
+        # Special cases (medium priority)
+        "erreur_exclusion": "4,0", 
+        "erreur_inclusion": "4,0", 
+        "maladie_mentale": "3,0", 
+        # Non-sensitive cases (normal priority)
+        "paiement": "5,0", 
+        "telephone": "5,0", 
+        "compte": "5,0", 
+        "information": "3,0"
+    },
 
     "attending_staff_role_ids": [],
     "default_attending_staff_role_ids": {DEFAULT_STRING: [1, 2]},

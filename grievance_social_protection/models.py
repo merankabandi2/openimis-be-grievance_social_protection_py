@@ -49,9 +49,9 @@ class Ticket(HistoryBusinessModel):
     
     # Location details - reusing gps_location as Localisation from form
     gps_location = models.CharField(max_length=255, blank=True, null=True) 
-    province = models.CharField(max_length=50, blank=True, null=True)
-    commune = models.CharField(max_length=50, blank=True, null=True)
-    zone = models.CharField(max_length=50, blank=True, null=True)
+    # province = models.CharField(max_length=50, blank=True, null=True)
+    # commune = models.CharField(max_length=50, blank=True, null=True)
+    # zone = models.CharField(max_length=50, blank=True, null=True)
     colline = models.CharField(max_length=50, blank=True, null=True)
     
     # Complaint details - reuse description field for description_plainte

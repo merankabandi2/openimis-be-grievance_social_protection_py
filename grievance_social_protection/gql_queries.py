@@ -251,21 +251,99 @@ class ResolutionTimesByCategoryGQLType(ObjectType):
     resolution_time = graphene.String()
 
 
+class GrievanceCategoryGQLType(ObjectType):
+    name = graphene.String()
+    full_name = graphene.String()
+    priority = graphene.String()
+    permissions = graphene.JSONString()
+    default_flags = graphene.List(graphene.String)
+    children = graphene.List(lambda: GrievanceCategoryGQLType)
+
+
+class GrievanceFlagGQLType(ObjectType):
+    name = graphene.String()
+    priority = graphene.String()
+    permissions = graphene.JSONString()
+
+
 class GrievanceTypeConfigurationGQLType(ObjectType):
     grievance_types = graphene.List(graphene.String)
     grievance_flags = graphene.List(graphene.String)
     grievance_channels = graphene.List(graphene.String)
     grievance_category_staff_roles = graphene.List(AttendingStaffRoleGQLType)
     grievance_default_resolutions_by_category = graphene.List(ResolutionTimesByCategoryGQLType)
+    # Enhanced fields
+    grievance_categories_hierarchical = graphene.List(GrievanceCategoryGQLType)
+    grievance_flags_detailed = graphene.List(GrievanceFlagGQLType)
+    accessible_categories = graphene.List(graphene.String)
+    accessible_flags = graphene.List(graphene.String)
 
     def resolve_grievance_types(self, info):
-        return TicketConfig.grievance_types
+        # Return accessible categories in flat format for backward compatibility
+        from .access_control import GrievanceAccessControl
+        user = info.context.user
+        return GrievanceAccessControl.get_accessible_categories(user)
 
     def resolve_grievance_flags(self, info):
-        return TicketConfig.grievance_flags
+        # Return accessible flags
+        from .access_control import GrievanceAccessControl
+        user = info.context.user
+        return GrievanceAccessControl.get_accessible_flags(user)
 
     def resolve_grievance_channels(self, info):
         return TicketConfig.grievance_channels
+    
+    def resolve_grievance_categories_hierarchical(self, info):
+        """Return hierarchical category structure with access control"""
+        from .access_control import GrievanceAccessControl
+        user = info.context.user
+        hierarchy = GrievanceAccessControl.get_category_hierarchy(user)
+        
+        def build_gql_category(cat_dict):
+            """Convert dict to GQL type"""
+            children = [build_gql_category(child) for child in cat_dict.get('children', [])]
+            return GrievanceCategoryGQLType(
+                name=cat_dict['name'],
+                full_name=cat_dict.get('full_name', cat_dict['name']),
+                priority=cat_dict.get('priority', 'Medium'),
+                permissions=cat_dict.get('permissions', {}),
+                default_flags=cat_dict.get('default_flags', []),
+                children=children
+            )
+        
+        return [build_gql_category(cat) for cat in hierarchy]
+    
+    def resolve_grievance_flags_detailed(self, info):
+        """Return detailed flag information with access control"""
+        from .access_control import GrievanceAccessControl
+        from .apps import TicketConfig
+        
+        user = info.context.user
+        accessible_flags = GrievanceAccessControl.get_accessible_flags(user)
+        processed_flags = getattr(TicketConfig, 'processed_flags', {})
+        
+        flags = []
+        for flag_name in accessible_flags:
+            flag_info = processed_flags.get(flag_name, {})
+            flags.append(GrievanceFlagGQLType(
+                name=flag_name,
+                priority=flag_info.get('priority', 'Medium'),
+                permissions=flag_info.get('permissions', {})
+            ))
+        
+        return flags
+    
+    def resolve_accessible_categories(self, info):
+        """Return flat list of accessible categories for create operations"""
+        from .access_control import GrievanceAccessControl
+        user = info.context.user
+        return GrievanceAccessControl.get_accessible_categories(user)
+    
+    def resolve_accessible_flags(self, info):
+        """Return flat list of accessible flags for use operations"""
+        from .access_control import GrievanceAccessControl
+        user = info.context.user
+        return GrievanceAccessControl.get_accessible_flags(user)
 
     def resolve_grievance_category_staff_roles(self, info):
         category_staff_role_list = []

@@ -196,13 +196,40 @@ class GrievanceAccessControl:
         Validate if user can create/view ticket with given category and flags.
         Raises PermissionDenied if access is not allowed.
         """
-        # Check category access
-        if category and not cls.check_category_permission(user, category):
-            raise PermissionDenied(f"User does not have permission to create ticket with category: {category}")
+        # Check category access - handle JSON array format
+        if category:
+            import json
+            try:
+                # Try to parse as JSON array
+                category_list = json.loads(category) if isinstance(category, str) else category
+                if isinstance(category_list, list):
+                    # Check each category in the array
+                    for cat in category_list:
+                        if cat and not cls.check_category_permission(user, cat):
+                            raise PermissionDenied(f"User does not have permission to create ticket with category: {cat}")
+                else:
+                    # Single category (backward compatibility)
+                    if not cls.check_category_permission(user, category):
+                        raise PermissionDenied(f"User does not have permission to create ticket with category: {category}")
+            except (json.JSONDecodeError, TypeError):
+                # Fallback to single category check
+                if not cls.check_category_permission(user, category):
+                    raise PermissionDenied(f"User does not have permission to create ticket with category: {category}")
         
-        # Check flags access
+        # Check flags access - handle JSON array format
         if flags:
-            flag_list = flags.split() if isinstance(flags, str) else flags
+            import json
+            try:
+                # Try to parse as JSON array
+                flag_list = json.loads(flags) if isinstance(flags, str) else flags
+                if not isinstance(flag_list, list):
+                    # Fallback to space-separated format
+                    flag_list = flags.split() if isinstance(flags, str) else [flags]
+            except (json.JSONDecodeError, TypeError):
+                # Fallback to space-separated format
+                flag_list = flags.split() if isinstance(flags, str) else [flags]
+            
+            # Check each flag
             for flag in flag_list:
                 if flag and not cls.check_flag_permission(user, flag):
                     raise PermissionDenied(f"User does not have permission to use flag: {flag}")
@@ -266,6 +293,8 @@ class GrievanceAccessControl:
             Filtered queryset
         """
         from .apps import TicketConfig
+        from django.db.models import Q
+        import json
         
         # Get accessible categories for viewing
         accessible_categories = cls.get_accessible_categories(user)
@@ -274,7 +303,20 @@ class GrievanceAccessControl:
         if accessible_categories is not None:
             # Only filter if we have processed categories (for backward compatibility)
             if hasattr(TicketConfig, 'processed_categories') and TicketConfig.processed_categories:
-                queryset = queryset.filter(category__in=accessible_categories)
+                # Get all categories that user does NOT have access to
+                all_categories = list(TicketConfig.processed_categories.keys())
+                restricted_categories = [cat for cat in all_categories if cat not in accessible_categories]
+                
+                if restricted_categories:
+                    # Exclude tickets that contain ANY restricted category
+                    exclude_q = Q()
+                    for cat in restricted_categories:
+                        # Check for category in JSON array format
+                        exclude_q |= Q(category__icontains=f'"{cat}"')
+                        # Also check for single category format (backward compatibility)
+                        exclude_q |= Q(category=cat)
+                    
+                    queryset = queryset.exclude(exclude_q)
         
         # Further filter by flag permissions if needed
         if hasattr(TicketConfig, 'processed_flags') and TicketConfig.processed_flags:
@@ -286,9 +328,16 @@ class GrievanceAccessControl:
                 if permissions and not cls.check_flag_permission(user, flag_name):
                     restricted_flags.append(flag_name)
             
-            # Exclude tickets with restricted flags
+            # Exclude tickets with ANY restricted flags (handle JSON array format)
             if restricted_flags:
+                # Build Q object to exclude tickets with any restricted flag
+                exclude_q = Q()
                 for flag in restricted_flags:
-                    queryset = queryset.exclude(flags__icontains=flag)
+                    # Check for flag in JSON array format
+                    exclude_q |= Q(flags__icontains=f'"{flag}"')
+                    # Also check for space-separated format (backward compatibility)
+                    exclude_q |= Q(flags__icontains=flag)
+                
+                queryset = queryset.exclude(exclude_q)
         
         return queryset

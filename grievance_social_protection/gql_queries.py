@@ -6,8 +6,7 @@ from django_filters.constants import EMPTY_VALUES
 from django.db import models
 from graphene import ObjectType
 from graphene_django import DjangoObjectType
-from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.utils.translation import gettext as _
 
 from core.gql_queries import UserGQLType
@@ -216,58 +215,43 @@ class TicketGQLType(DjangoObjectType):
         return not root.version == Ticket.objects.get(id=root.id).version
 
     @staticmethod
+    def _reporter_attribute(root, attribute):
+        """
+        Return an attribute of an individual or beneficiary reporter; None
+        for another reporter type or when the reporter row is absent.
+        """
+        if not root.reporter_type or not root.reporter_id:
+            return None
+        try:
+            model_object = root.reporter_type.get_object_for_this_type(pk=root.reporter_id)
+        except ObjectDoesNotExist:
+            return None
+        if root.reporter_type.name == 'individual':
+            return getattr(model_object, attribute)
+        if root.reporter_type.name == 'beneficiary':
+            return getattr(model_object.individual, attribute)
+        return None
+
+    @staticmethod
     def resolve_reporter_first_name(root, info):
         check_ticket_perms(info)
         if TicketGQLType._should_restrict_field('reporter_first_name', root, info):
             return RESTRICTED_VALUE
-        if root.reporter_type:
-            content_type = ContentType.objects.get_for_model(root.reporter_type.model_class())
-            if content_type:
-                model_object = content_type.get_object_for_this_type(pk=root.reporter_id)
-                if model_object:
-                    if root.reporter_type.name == 'individual':
-                        return model_object.first_name
-                    elif root.reporter_type.name == 'beneficiary':
-                        return model_object.individual.first_name
-                    elif root.reporter_type.name == 'user':
-                        return None
-        return None
+        return TicketGQLType._reporter_attribute(root, 'first_name')
 
     @staticmethod
     def resolve_reporter_last_name(root, info):
         check_ticket_perms(info)
         if TicketGQLType._should_restrict_field('reporter_last_name', root, info):
             return RESTRICTED_VALUE
-        if root.reporter_type:
-            content_type = ContentType.objects.get_for_model(root.reporter_type.model_class())
-            if content_type:
-                model_object = content_type.get_object_for_this_type(pk=root.reporter_id)
-                if model_object:
-                    if root.reporter_type.name == 'individual':
-                        return model_object.last_name
-                    elif root.reporter_type.name == 'beneficiary':
-                        return model_object.individual.last_name
-                    elif root.reporter_type.name == 'user':
-                        return None
-        return None
+        return TicketGQLType._reporter_attribute(root, 'last_name')
 
     @staticmethod
     def resolve_reporter_dob(root, info):
         check_ticket_perms(info)
         if TicketGQLType._should_restrict_field('reporter_dob', root, info):
             return None
-        if root.reporter_type:
-            content_type = ContentType.objects.get_for_model(root.reporter_type.model_class())
-            if content_type:
-                model_object = content_type.get_object_for_this_type(pk=root.reporter_id)
-                if model_object:
-                    if root.reporter_type.name == 'individual':
-                        return model_object.dob
-                    elif root.reporter_type.name == 'beneficiary':
-                        return model_object.individual.dob
-                    elif root.reporter_type.name == 'user':
-                        return None
-        return None
+        return TicketGQLType._reporter_attribute(root, 'dob')
 
     @staticmethod
     def resolve_description(root, info):
@@ -365,53 +349,45 @@ class CommentGQLType(DjangoObjectType):
         check_comment_perms(info)
         return model_obj_to_json(root.commenter) if root.commenter else None
 
+    # core.User delegates other_names / last_name to the user it wraps (interactive user,
+    # officer or claim admin); a technical user has neither.
+    _USER_COMMENTER_ATTRIBUTES = {'first_name': 'other_names', 'last_name': 'last_name'}
+
+    @staticmethod
+    def _commenter_attribute(root, attribute):
+        """
+        Return an attribute of an individual, beneficiary or core user commenter;
+        None when the commenter row is absent or has no such attribute.
+        """
+        if not root.commenter_type or not root.commenter_id:
+            return None
+        try:
+            model_object = root.commenter_type.get_object_for_this_type(pk=root.commenter_id)
+        except ObjectDoesNotExist:
+            return None
+        if root.commenter_type.name == 'individual':
+            return getattr(model_object, attribute)
+        if root.commenter_type.name == 'beneficiary':
+            return getattr(model_object.individual, attribute)
+        if (root.commenter_type.app_label, root.commenter_type.model) == ('core', 'user'):
+            user_attribute = CommentGQLType._USER_COMMENTER_ATTRIBUTES.get(attribute)
+            return getattr(model_object, user_attribute, None) if user_attribute else None
+        return None
+
     @staticmethod
     def resolve_commenter_first_name(root, info):
         check_comment_perms(info)
-        if root.commenter_type:
-            content_type = ContentType.objects.get_for_model(root.commenter_type.model_class())
-            if content_type:
-                model_object = content_type.get_object_for_this_type(pk=root.commenter_id)
-                if model_object:
-                    if root.commenter_type.name == 'individual':
-                        return model_object.first_name
-                    elif root.commenter_type.name == 'beneficiary':
-                        return model_object.individual.first_name
-                    elif root.commenter_type.name == 'user':
-                        return None
-        return None
+        return CommentGQLType._commenter_attribute(root, 'first_name')
 
     @staticmethod
     def resolve_commenter_last_name(root, info):
         check_comment_perms(info)
-        if root.commenter_type:
-            content_type = ContentType.objects.get_for_model(root.commenter_type.model_class())
-            if content_type:
-                model_object = content_type.get_object_for_this_type(pk=root.commenter_id)
-                if model_object:
-                    if root.commenter_type.name == 'individual':
-                        return model_object.last_name
-                    elif root.commenter_type.name == 'beneficiary':
-                        return model_object.individual.last_name
-                    elif root.commenter_type.name == 'user':
-                        return None
-        return None
+        return CommentGQLType._commenter_attribute(root, 'last_name')
 
     @staticmethod
     def resolve_commenter_dob(root, info):
         check_comment_perms(info)
-        if root.commenter_type:
-            content_type = ContentType.objects.get_for_model(root.commenter_type.model_class())
-            if content_type:
-                model_object = content_type.get_object_for_this_type(pk=root.commenter_id)
-                if model_object:
-                    if root.commenter_type.name == 'individual':
-                        return model_object.dob
-                    elif root.commenter_type.name == 'beneficiary':
-                        return model_object.individual.dob
-                    elif root.commenter_type.name == 'user':
-                        return None
-        return None
+        return CommentGQLType._commenter_attribute(root, 'dob')
 
     class Meta:
         model = Comment

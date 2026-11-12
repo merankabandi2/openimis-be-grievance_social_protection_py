@@ -6,10 +6,13 @@ This module provides comprehensive test coverage for:
 - _get_next_available_id(): ID generation with suffix pattern
 - _generate_permission_fields(): Codename and permission name generation
 """
+from datetime import datetime
+
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
+from core.models import Role, RoleRight
 from grievance_social_protection.models import Ticket
 from grievance_social_protection.rights import GrievanceRightsManager
 from grievance_social_protection.apps import TicketConfig
@@ -756,3 +759,122 @@ class TestProcessPermissions(TestCase):
         self.assertGreater(len(used_ids), initial_count)
         new_id = item_info['generated_rights']['read']
         self.assertIn(new_id, used_ids)
+
+
+class TestGeneratedIdsSkipGrantedIds(TestCase):
+    """Generated ids skip ids that live role grants still reference."""
+
+    CATEGORY = 'granted_id_cat'
+
+    def setUp(self):
+        self.ct = ContentType.objects.get_for_model(Ticket)
+        self.role, _ = Role.objects.get_or_create(
+            name='GrantedIdTestRole',
+            defaults={'is_system': 0, 'is_blocked': False, 'audit_user_id': -1},
+        )
+        reserved_range = (GrievanceRightsManager.GRIEVANCE_RIGHT_BASE, GrievanceRightsManager.GRIEVANCE_RIGHT_MAX)
+        self.used_ids = set(Permission.objects.filter(
+            id__range=reserved_range
+        ).values_list('id', flat=True)) | set(RoleRight.filter_queryset().filter(
+            right_id__range=reserved_range
+        ).values_list('right_id', flat=True))
+        self.granted_id = GrievanceRightsManager._get_next_available_id('read', self.used_ids)
+
+    def _generate(self):
+        app_config = TicketConfig('grievance_social_protection', grievance_social_protection)
+        app_config.processed_categories = {self.CATEGORY: {'permissions': ['read'], 'generated_rights': {}}}
+        app_config.processed_flags = {}
+        app_config.generated_rights = {}
+        GrievanceRightsManager.generate_automatic_rights(app_config)
+        return app_config.processed_categories[self.CATEGORY]['generated_rights']['read']
+
+    def test_skips_id_held_by_live_role_grant(self):
+        RoleRight.objects.create(role=self.role, right_id=self.granted_id, audit_user_id=-1)
+        expected_id = GrievanceRightsManager._get_next_available_id(
+            'read', self.used_ids | {self.granted_id})
+
+        new_id = self._generate()
+
+        self.assertNotEqual(new_id, self.granted_id)
+        self.assertEqual(new_id, expected_id)
+        self.assertEqual(new_id % 10, self.granted_id % 10)
+
+    def test_logs_orphan_grant(self):
+        RoleRight.objects.create(role=self.role, right_id=self.granted_id, audit_user_id=-1)
+
+        with self.assertLogs('grievance_social_protection.rights', level='WARNING') as logs:
+            self._generate()
+
+        self.assertTrue(any(
+            str(self.granted_id) in line and str(self.role.id) in line for line in logs.output
+        ))
+
+    def test_revoked_grant_does_not_block_id(self):
+        RoleRight.objects.create(
+            role=self.role, right_id=self.granted_id, audit_user_id=-1, validity_to=datetime.now())
+
+        self.assertEqual(self._generate(), self.granted_id)
+
+
+class TestLaneExhaustedByOrphanGrants(TestCase):
+    """Live role grants that reference no permission fill every free id of the
+    'read' lane, as a role-right fixture dumped from another database does."""
+
+    FIRST = 'lane_first_cat'
+    BLOCKED = 'lane_blocked_cat'
+
+    def setUp(self):
+        self.ct = ContentType.objects.get_for_model(Ticket)
+        self.role, _ = Role.objects.get_or_create(
+            name='LaneExhaustionTestRole',
+            defaults={'is_system': 0, 'is_blocked': False, 'audit_user_id': -1},
+        )
+        base, top = GrievanceRightsManager.GRIEVANCE_RIGHT_BASE, GrievanceRightsManager.GRIEVANCE_RIGHT_MAX
+        self.lane = set(range(base + GrievanceRightsManager.PERM_TYPE_SUFFIX['read'], top + 1, 10))
+        permission_ids = set(Permission.objects.filter(id__in=self.lane).values_list('id', flat=True))
+        granted = set(RoleRight.filter_queryset().filter(right_id__in=self.lane).values_list('right_id', flat=True))
+        self.orphans = sorted(self.lane - permission_ids - granted)
+        RoleRight.objects.bulk_create([
+            RoleRight(role=self.role, right_id=right_id, audit_user_id=-1, validity_from=datetime.now())
+            for right_id in self.orphans
+        ])
+        self.held_by_permissions = len(permission_ids)
+        self.orphan_count = len(self.lane - permission_ids)
+
+    def _generate(self):
+        app_config = TicketConfig('grievance_social_protection', grievance_social_protection)
+        app_config.processed_categories = {
+            self.FIRST: {'permissions': ['create'], 'generated_rights': {}},
+            self.BLOCKED: {'permissions': ['read'], 'generated_rights': {}},
+        }
+        app_config.processed_flags = {}
+        app_config.generated_rights = {}
+        GrievanceRightsManager.generate_automatic_rights(app_config)
+
+    def test_error_names_the_type_the_item_and_the_orphan_grants(self):
+        with self.assertRaises(ValueError) as raised:
+            self._generate()
+
+        message = str(raised.exception)
+        self.assertIn('No available ID for permission type read', message)
+        self.assertIn(f"category '{self.BLOCKED}'", message)
+        self.assertIn(f'{len(self.lane)} ids', message)
+        self.assertIn(f'{self.held_by_permissions} existing permissions', message)
+        self.assertIn(f'{self.orphan_count} live role grants that reference no permission', message)
+
+    def test_error_type_carries_the_permission_type(self):
+        from grievance_social_protection.rights import GeneratedRightIdsExhausted
+
+        with self.assertRaises(GeneratedRightIdsExhausted) as raised:
+            self._generate()
+
+        self.assertEqual(raised.exception.perm_type, 'read')
+
+    def test_nothing_is_created_when_a_lane_is_exhausted(self):
+        with self.assertRaises(ValueError):
+            self._generate()
+
+        self.assertFalse(Permission.objects.filter(
+            content_type=self.ct,
+            codename__in=[f'create_{self.FIRST}_grievance', f'read_{self.BLOCKED}_grievance'],
+        ).exists())

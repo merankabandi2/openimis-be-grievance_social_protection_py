@@ -143,6 +143,7 @@ class GrievanceAccessControl:
         if not user or user.is_anonymous:
             return False
 
+        TicketConfig.reload_if_changed()
         name = cls._configured_name(name, config_attr)
         processed = getattr(TicketConfig, config_attr, {})
         if not processed:
@@ -253,6 +254,7 @@ class GrievanceAccessControl:
     def _has_restrictions(cls, name, config_attr):
         """Check if an item has any access restrictions. A name the loaded
         configuration does not know is restricted (_check_access denies it)."""
+        TicketConfig.reload_if_changed()
         name = cls._configured_name(name, config_attr)
         processed = getattr(TicketConfig, config_attr, {})
         if not processed:
@@ -401,6 +403,7 @@ class GrievanceAccessControl:
         Returns:
             Filtered queryset
         """
+        TicketConfig.reload_if_changed()
         # Get categories user can at least view with restricted access
         accessible_categories = cls.get_accessible_categories(user)
 
@@ -574,6 +577,7 @@ class GrievanceAccessControl:
         A model attname (reporter_type_id) names its field; a value that is
         neither a name nor a list of names lists nothing."""
         from .models import Ticket
+        TicketConfig.reload_if_changed()
         configured = TicketConfig.grievance_anonymized_fields
         if not isinstance(configured, dict):
             return []
@@ -661,6 +665,7 @@ class GrievanceAccessControl:
         'none' or 'restricted' level for the user: {level: [Q, ...]}. A ticket
         matching a condition of a level is at that level or below it.
         """
+        TicketConfig.reload_if_changed()
         categories = TicketConfig.processed_categories or {}
         flags = TicketConfig.processed_flags or {}
         by_level = {cls.ACCESS_NONE: [], cls.ACCESS_RESTRICTED: []}

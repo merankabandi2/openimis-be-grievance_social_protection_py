@@ -145,8 +145,12 @@ class GrievanceAccessControl:
 
         name = cls._configured_name(name, config_attr)
         processed = getattr(TicketConfig, config_attr, {})
-        if not processed or name not in processed:
+        if not processed:
             return True
+        if name not in processed:
+            # A name the loaded configuration does not know, such as one a
+            # configuration this process has not loaded introduced, is closed.
+            return False
 
         info = cls._entry_info(name, config_attr)
         generated_rights = info.get('generated_rights', {})
@@ -247,11 +251,14 @@ class GrievanceAccessControl:
 
     @classmethod
     def _has_restrictions(cls, name, config_attr):
-        """Check if an item has any access restrictions"""
+        """Check if an item has any access restrictions. A name the loaded
+        configuration does not know is restricted (_check_access denies it)."""
         name = cls._configured_name(name, config_attr)
         processed = getattr(TicketConfig, config_attr, {})
-        if not processed or name not in processed:
+        if not processed:
             return False
+        if name not in processed:
+            return True
         info = processed[name]
         return bool(info.get('generated_rights')) or bool(info.get('permissions'))
 

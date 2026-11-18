@@ -146,7 +146,9 @@ class GrievanceAccessControl:
         name = cls._configured_name(name, config_attr)
         processed = getattr(TicketConfig, config_attr, {})
         if not processed or name not in processed:
-            return True
+            # A name the loaded configuration does not know, such as one a
+            # configuration this process has not loaded introduced, is closed.
+            return not cls._is_unknown(name, config_attr)
 
         info = cls._entry_info(name, config_attr)
         generated_rights = info.get('generated_rights', {})
@@ -237,6 +239,20 @@ class GrievanceAccessControl:
         return (cls.check_flag_access(user, flag_name, cls.PERM_READ)
                 or cls.check_flag_access(user, flag_name, cls.PERM_RESTRICTED_READ))
 
+    # Flat list of the configured names of each processed structure.
+    _CONFIGURED_NAMES = {'processed_categories': 'grievance_types', 'processed_flags': 'grievance_flags'}
+
+    @classmethod
+    def _is_unknown(cls, name, config_attr):
+        """True when the loaded configuration has processed categories (flags)
+        and `name` (a configured name, see _configured_name) is neither among
+        them nor in the flat grievance_types (grievance_flags) list."""
+        processed = getattr(TicketConfig, config_attr, None) or {}
+        if not processed:
+            return False
+        listed = getattr(TicketConfig, cls._CONFIGURED_NAMES[config_attr], None) or []
+        return name not in processed and name not in listed
+
     @staticmethod
     def _rights_missing(info):
         """True when a permission type configured on the category/flag has no
@@ -247,11 +263,12 @@ class GrievanceAccessControl:
 
     @classmethod
     def _has_restrictions(cls, name, config_attr):
-        """Check if an item has any access restrictions"""
+        """Check if an item has any access restrictions. A name the loaded
+        configuration does not know is restricted (_check_access denies it)."""
         name = cls._configured_name(name, config_attr)
         processed = getattr(TicketConfig, config_attr, {})
         if not processed or name not in processed:
-            return False
+            return cls._is_unknown(name, config_attr)
         info = processed[name]
         return bool(info.get('generated_rights')) or bool(info.get('permissions'))
 

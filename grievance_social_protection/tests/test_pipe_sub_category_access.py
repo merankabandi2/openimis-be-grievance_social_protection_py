@@ -66,7 +66,8 @@ class PipeSubCategoryAccessTest(TestCase):
     def test_ticket_list_keeps_a_pipe_sub_category_for_its_readers(self):
         self.assertEqual(self._listed(self.full_reader), ['ARROW', 'OPEN', 'PIPE'])
         self.assertEqual(self._listed(self.restricted_reader), ['ARROW', 'OPEN', 'PIPE'])
-        self.assertEqual(self._listed(self.admin), ['ARROW', 'OPEN', 'PIPE'])
+        # A superuser also lists 'pipe_secretx|pipe_sub', no configured category.
+        self.assertEqual(self._listed(self.admin), ['ARROW', 'LOOKALIKE', 'OPEN', 'PIPE'])
 
     def test_ticket_list_leaves_out_a_pipe_sub_category_the_user_may_not_read(self):
         self.assertEqual(self._listed(self.base_reader), ['OPEN'])

@@ -16,16 +16,36 @@ logger = logging.getLogger(__name__)
 # Serialises the access-time retry of the rights generation ready() skipped.
 _rights_generation_lock = threading.Lock()
 # Serialises the comparison of the stored configuration with the loaded one.
-_config_check_lock = threading.Lock()
+# Re-entrant: an access check made while a reload runs checks again.
+_config_check_lock = threading.RLock()
 
 # Seconds between two reads of the stored configuration row by a process
 # (TicketConfig.reload_if_changed): a configuration saved by another process
-# takes effect in this one at its first access check after this delay.
+# takes effect in this one at the start of its first request or task, or at
+# its first access check, after this delay.
 CONFIG_CHECK_INTERVAL_SECONDS = 1
 # TicketConfig.loaded_config_text while the stored row has not been read.
 _CONFIG_NOT_READ = object()
 
 MODULE_NAME = "grievance_social_protection"
+
+
+def _check_config(sender=None, **kwargs):
+    TicketConfig.reload_if_changed()
+
+
+def _connect_config_check():
+    """Check the stored configuration at the start of each request and, where
+    celery is installed, of each task, so that code reading TicketConfig before
+    any access check reads the configuration in force."""
+    from django.core.signals import request_started
+    request_started.connect(_check_config, dispatch_uid=f"{MODULE_NAME}.config_check_request")
+    try:
+        from celery.signals import task_prerun
+    except ImportError:
+        return
+    task_prerun.connect(_check_config, dispatch_uid=f"{MODULE_NAME}.config_check_task")
+
 
 DEFAULT_STRING = 'Default'
 # CRON timedelta: {days},{hours}
@@ -155,6 +175,7 @@ class TicketConfig(AppConfig):
         post_migrate.connect(
             self._generate_rights_after_migrate, sender=self,
             dispatch_uid=f"{MODULE_NAME}.generate_rights_after_migrate")
+        _connect_config_check()
         register_validator(MODULE_NAME, self._validate_module_config)
         register_reloader(MODULE_NAME, self._reload_module_config)
 
@@ -196,10 +217,11 @@ class TicketConfig(AppConfig):
         """
         Reload the configuration when the stored row differs from the one this
         process loaded, as the reloader of ModuleConfiguration.save does in the
-        saving process. The row is read at most once per
-        CONFIG_CHECK_INTERVAL_SECONDS. When the rights generation of the
-        reloaded configuration fails, the next access check retries it once
-        (generate_skipped_rights).
+        saving process. Runs at the start of each request and task
+        (_connect_config_check) and at each access check; the row is read
+        at most once per CONFIG_CHECK_INTERVAL_SECONDS. When the rights
+        generation of the reloaded configuration fails, the next access check
+        retries it once (generate_skipped_rights).
         """
         checked_at = cls._config_checked_at
         if checked_at is not None and time.monotonic() - checked_at < CONFIG_CHECK_INTERVAL_SECONDS:

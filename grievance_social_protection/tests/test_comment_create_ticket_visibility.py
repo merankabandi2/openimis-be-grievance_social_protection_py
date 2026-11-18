@@ -1,10 +1,10 @@
 """
 A comment is created only on a ticket the user may see: a non-deleted ticket
 that filter_ticket_queryset keeps for the user, at an access level other than
-'none' (the tickets whose comments the comments query returns). The rule
-applies to every caller of CommentService.create, the holder of the bypass
-right and the attending staff included. A ticket the user may not see is
-refused with the message of a ticket that does not exist.
+'none' (the tickets whose comments the comments query returns), or a
+non-deleted ticket the user attends. The rule applies to every caller of
+CommentService.create, the holder of the bypass right included. A ticket the
+user may not see is refused with the message of a ticket that does not exist.
 """
 import re
 from uuid import uuid4
@@ -98,9 +98,13 @@ class CommentCreateTicketVisibilityTest(TestCase):
         self.assertTrue(self._mutate(self.commenter, self.flagged_ticket.id).error)
         self.assertEqual(self._comments(self.flagged_ticket), 0)
 
-    def test_attending_staff_without_the_category_right_is_refused(self):
-        self.assertTrue(self._mutate(self.staff, self.attended_secret_ticket.id).error)
-        self.assertEqual(self._comments(self.attended_secret_ticket), 0)
+    def test_attending_staff_without_the_category_right_comments(self):
+        self.assertFalse(self._mutate(self.staff, self.attended_secret_ticket.id).error)
+        self.assertEqual(self._comments(self.attended_secret_ticket), 1)
+
+    def test_staff_attending_another_ticket_is_refused(self):
+        self.assertTrue(self._mutate(self.staff, self.secret_ticket.id).error)
+        self.assertEqual(self._comments(self.secret_ticket), 0)
 
     def test_a_deleted_ticket_is_refused(self):
         self.assertTrue(self._mutate(self.commenter, self.deleted_ticket.id).error)

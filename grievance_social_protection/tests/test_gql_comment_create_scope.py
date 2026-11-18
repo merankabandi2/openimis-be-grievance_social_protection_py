@@ -56,7 +56,7 @@ class GQLCommentCreateScopeTestCase(openIMISGraphQLTestCase):
         self.assertTrue(mutation_log.error)
         self.assertFalse(Comment.objects.filter(ticket_id=self.own_ticket.id).exists())
 
-    def test_bypass_right_comments_on_a_ticket_it_does_not_attend(self):
+    def test_bypass_right_comments_on_any_ticket(self):
         mutation_log = self._create_comment(self.admin, self.other_ticket)
         self.assertFalse(mutation_log.error)
         self.assertTrue(Comment.objects.filter(ticket_id=self.other_ticket.id).exists())

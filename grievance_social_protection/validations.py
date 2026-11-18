@@ -61,11 +61,14 @@ class CommentValidation(ObjectExistsValidationMixin):
 
 def validate_ticket_visible(user, data):
     """The error of a missing ticket unless the ticket is one whose comments
-    the user may read (GrievanceAccessControl.filter_comment_ticket_queryset),
-    so that a refusal does not reveal that the ticket exists."""
+    the user may read (GrievanceAccessControl.filter_comment_ticket_queryset)
+    or a non-deleted ticket the user attends, so that a refusal does not
+    reveal that the ticket exists."""
     ticket_id = data.get('ticket_id')
-    tickets = GrievanceAccessControl.filter_comment_ticket_queryset(Ticket.objects.filter(id=ticket_id), user)
-    if not tickets.exists():
+    tickets = Ticket.objects.filter(id=ticket_id)
+    if isinstance(user, User) and tickets.filter(is_deleted=False, attending_staff_id=user.id).exists():
+        return []
+    if not GrievanceAccessControl.filter_comment_ticket_queryset(tickets, user).exists():
         return [{"message": _("validations.CommentValidation.validate_ticket_exists") % {"ticket_id": ticket_id}}]
     return []
 

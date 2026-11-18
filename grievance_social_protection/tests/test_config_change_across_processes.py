@@ -13,6 +13,7 @@ from unittest import mock
 
 from django.apps import apps
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from core.models import ModuleConfiguration
@@ -89,3 +90,20 @@ class ConfigChangeAcrossProcessesTest(ReloadRightsTestBase):
         self._after(grievance_apps.CONFIG_CHECK_INTERVAL_SECONDS)
         TicketConfig.reload_if_changed()
         self.assertEqual(TicketConfig.grievance_flags, grievance_apps.DEFAULT_CFG['grievance_flags'])
+
+
+class ConfigCheckWithoutDatabaseTest(SimpleTestCase):
+    """Where the database cannot be read, such as in a test without database
+    access, the access checks keep the loaded configuration."""
+
+    def setUp(self):
+        for attribute in ('_config_checked_at', 'processed_categories', 'processed_flags'):
+            patcher = mock.patch.object(TicketConfig, attribute, None if attribute == '_config_checked_at' else {})
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_the_check_keeps_the_loaded_configuration(self):
+        user = mock.Mock(is_anonymous=False)
+        with self.assertLogs('grievance_social_protection.apps', level='WARNING'):
+            self.assertTrue(GrievanceAccessControl.check_category_access(user, 'general'))
+        self.assertEqual(TicketConfig.processed_categories, {})

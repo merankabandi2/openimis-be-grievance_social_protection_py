@@ -294,7 +294,9 @@ class TicketConfig(AppConfig):
                 # A savepoint: a database error leaves the caller's transaction usable.
                 with transaction.atomic():
                     row = cls._stored_config_row()
-            except (OperationalError, ProgrammingError):
+            except Exception:
+                # No database access (a database error, a test without database):
+                # the loaded configuration stays in force.
                 logger.warning("Grievance configuration not readable; keeping the loaded one.")
                 return
             text = row.config if row else None

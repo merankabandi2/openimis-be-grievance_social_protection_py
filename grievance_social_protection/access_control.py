@@ -126,6 +126,61 @@ class GrievanceAccessControl:
         json_array = Q(flags__regex=r'^\s*\[.*"\s*(' + alternatives + r')\s*"')
         return space_separated | json_array
 
+    # JSON whitespace, and a JSON array of strings: the stored flags that
+    # parse_flags reads as a JSON array and _unknown_flag_q checks element by element.
+    _JSON_WS = r'[ \t\n\r]'
+    _JSON_STRING = r'"([^"\\\x01-\x1f]|\\.)*"'
+    _JSON_STRING_ARRAY = (r'\s*\[{ws}*({s}{ws}*(,{ws}*{s}{ws}*)*)?\]\s*$'
+                          .format(ws=_JSON_WS, s=_JSON_STRING))
+
+    @classmethod
+    def _unknown_category_q(cls):
+        """
+        Q matching the tickets whose stored category is a name _is_unknown
+        reports; None when no category is processed. A blank category is no
+        category.
+        """
+        processed = TicketConfig.processed_categories or {}
+        if not processed:
+            return None
+        listed = [name for name in (TicketConfig.grievance_types or []) if isinstance(name, str)]
+        known = cls.stored_category_names(list(processed) + listed)
+        return Q(category__isnull=False) & ~Q(category='') & ~Q(category__in=known)
+
+    @classmethod
+    def _unknown_flag_q(cls):
+        """
+        Q matching the tickets whose stored flags hold a flag _is_unknown
+        reports, in either encoding parse_flags reads (whole-token, case
+        sensitive); None when no flag is processed. A value starting with '['
+        that is not a JSON array of strings matches: parse_flags splits it on
+        whitespace into tokens no configuration lists.
+        """
+        processed = TicketConfig.processed_flags or {}
+        if not processed:
+            return None
+        listed = [name for name in (TicketConfig.grievance_flags or []) if isinstance(name, str)]
+        known = sorted(set(processed) | set(listed))
+        tokens = '|'.join(re.escape(name) for name in known)
+        bodies = '|'.join(re.escape(body) for body in sorted(
+            {json.dumps(name)[1:-1] for name in known} | {json.dumps(name, ensure_ascii=False)[1:-1] for name in known}))
+        ws = cls._JSON_WS
+        space_separated = (
+            Q(flags__regex=r'^\s*[^\s\[]')
+            & Q(flags__regex=r'(^|\s)(?!(' + tokens + r')(\s|$))\S'))
+        not_a_string_array = Q(flags__regex=r'^(?!' + cls._JSON_STRING_ARRAY + r')\s*\[')
+        # An element starts after '[' or ',': a quote inside a string is escaped.
+        unknown_element = Q(flags__regex=(
+            r'^\s*\[((.|\n)*,)?' + ws + r'*"(?!' + ws + r'*")(?!' + ws + r'*(' + bodies + r')' + ws + r'*")'))
+        return Q(flags__isnull=False) & (space_separated | not_a_string_array | unknown_element)
+
+    @classmethod
+    def _unknown_names_q(cls):
+        """Q matching the tickets carrying a category or flag name _is_unknown
+        reports; None when no ticket can carry one."""
+        conditions = [q for q in (cls._unknown_category_q(), cls._unknown_flag_q()) if q is not None]
+        return reduce(operator.or_, conditions) if conditions else None
+
     @classmethod
     def _check_access(cls, user, name, access_type, config_attr):
         """
@@ -436,6 +491,7 @@ class GrievanceAccessControl:
             # Uses POSIX-compatible patterns (no lookbehind) for PostgreSQL compatibility.
             for flag in restricted_flags:
                 queryset = queryset.exclude(cls._flag_stored_q(flag))
+            queryset = queryset.exclude(cls._unknown_flag_q())
 
         for ticket_filter in cls.ticket_queryset_filters:
             queryset = ticket_filter(queryset, user)
@@ -682,6 +738,9 @@ class GrievanceAccessControl:
             level = cls.get_user_access_level(user, None, [name])
             if level in by_level:
                 by_level[level].append(cls._flag_stored_q(name))
+        unknown = cls._unknown_names_q()
+        if unknown is not None:
+            by_level[cls.ACCESS_NONE].append(unknown)
         return by_level
 
     @classmethod

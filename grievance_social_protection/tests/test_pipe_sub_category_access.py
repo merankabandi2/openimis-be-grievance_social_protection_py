@@ -89,11 +89,14 @@ class PipeSubCategoryAccessTest(TestCase):
         self.assertEqual(GrievanceAccessControl.get_effective_priority(PIPE), 'High')
 
     def test_queryset_conditions_treat_pipe_and_arrow_alike(self):
+        # 'pipe_secretx|pipe_sub' is no configured category: 'none' for every reader.
         tickets = Ticket.objects.filter(code__startswith=PREFIX)
         self.assertEqual(
-            self._codes(tickets.filter(GrievanceAccessControl.no_access_q(self.base_reader))), ['ARROW', 'PIPE'])
+            self._codes(tickets.filter(GrievanceAccessControl.no_access_q(self.base_reader))),
+            ['ARROW', 'LOOKALIKE', 'PIPE'])
         self.assertEqual(
             self._codes(tickets.filter(GrievanceAccessControl.hidden_field_q(self.restricted_reader, 'description'))),
-            ['ARROW', 'PIPE'])
+            ['ARROW', 'LOOKALIKE', 'PIPE'])
         self.assertEqual(
-            self._codes(tickets.filter(GrievanceAccessControl.hidden_field_q(self.full_reader, 'description'))), [])
+            self._codes(tickets.filter(GrievanceAccessControl.hidden_field_q(self.full_reader, 'description'))),
+            ['LOOKALIKE'])

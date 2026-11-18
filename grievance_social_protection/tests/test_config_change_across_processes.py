@@ -29,11 +29,12 @@ from grievance_social_protection.services import TicketService
 from grievance_social_protection.tests.data import service_add_ticket_payload
 from grievance_social_protection.tests.test_config_reload_rights import MODULE, ReloadRightsTestBase
 
+# 'secret' is an open flag: a flag the loaded configuration does not list is closed.
 LOADED = {
     'grievance_types': ['general'],
-    'grievance_flags': ['public'],
+    'grievance_flags': ['public', 'secret'],
 }
-# Saved by the other process: 'general' restricted, a restricted flag 'secret'.
+# Saved by the other process: 'general' restricted, the flag 'secret' restricted.
 SAVED_ELSEWHERE = {
     'grievance_types': [{'name': 'general', 'permissions': ['read']}],
     'grievance_flags': ['public', {'name': 'secret', 'permissions': ['read']}],

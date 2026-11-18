@@ -57,6 +57,8 @@ class UnknownCategoryFlagDeniedTest(TestCase):
         self.addCleanup(restore_grievance_config, snapshot)
         TicketConfig.processed_categories = {}
         TicketConfig.processed_flags = {}
+        TicketConfig.grievance_types = []
+        TicketConfig.grievance_flags = []
         self.assertTrue(GrievanceAccessControl.check_category_access(self.user, UNKNOWN))
         self.assertEqual(GrievanceAccessControl.get_user_access_level(self.user, UNKNOWN, UNKNOWN),
                          GrievanceAccessControl.ACCESS_FULL)

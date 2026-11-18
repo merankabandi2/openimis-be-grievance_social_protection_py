@@ -145,12 +145,10 @@ class GrievanceAccessControl:
 
         name = cls._configured_name(name, config_attr)
         processed = getattr(TicketConfig, config_attr, {})
-        if not processed:
-            return True
-        if name not in processed:
+        if not processed or name not in processed:
             # A name the loaded configuration does not know, such as one a
             # configuration this process has not loaded introduced, is closed.
-            return False
+            return not cls._is_unknown(name, config_attr)
 
         info = cls._entry_info(name, config_attr)
         generated_rights = info.get('generated_rights', {})
@@ -241,6 +239,19 @@ class GrievanceAccessControl:
         return (cls.check_flag_access(user, flag_name, cls.PERM_READ)
                 or cls.check_flag_access(user, flag_name, cls.PERM_RESTRICTED_READ))
 
+    # Flat list of the configured names of each processed structure.
+    _CONFIGURED_NAMES = {'processed_categories': 'grievance_types', 'processed_flags': 'grievance_flags'}
+
+    @classmethod
+    def _is_unknown(cls, name, config_attr):
+        """True when the loaded configuration has categories (flags) and none
+        of them is `name` (a configured name, see _configured_name)."""
+        processed = getattr(TicketConfig, config_attr, None) or {}
+        listed = getattr(TicketConfig, cls._CONFIGURED_NAMES[config_attr], None) or []
+        if not processed and not listed:
+            return False
+        return name not in processed and name not in listed
+
     @staticmethod
     def _rights_missing(info):
         """True when a permission type configured on the category/flag has no
@@ -255,10 +266,8 @@ class GrievanceAccessControl:
         configuration does not know is restricted (_check_access denies it)."""
         name = cls._configured_name(name, config_attr)
         processed = getattr(TicketConfig, config_attr, {})
-        if not processed:
-            return False
-        if name not in processed:
-            return True
+        if not processed or name not in processed:
+            return cls._is_unknown(name, config_attr)
         info = processed[name]
         return bool(info.get('generated_rights')) or bool(info.get('permissions'))
 

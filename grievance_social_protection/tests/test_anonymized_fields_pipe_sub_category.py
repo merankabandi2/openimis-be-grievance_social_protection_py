@@ -76,7 +76,8 @@ class PipeSubCategoryAnonymizedFieldsTest(TestCase):
         self.assertEqual(self._resolved(self.admin, 'PIPE'), ('needle PIPE', 'sms', 'title PIPE'))
 
     def test_hidden_field_condition_matches_a_pipe_sub_category(self):
+        # The resolvers mask every field of 'pipe_parentx|pipe_sub', no configured category.
         tickets = Ticket.objects.filter(code__startswith=PREFIX)
         for field in ('description', 'channel'):
             hiding = tickets.filter(GrievanceAccessControl.hidden_field_q(self.reader, field))
-            self.assertEqual(sorted(t.code[len(PREFIX):] for t in hiding), ['ARROW', 'PIPE'], field)
+            self.assertEqual(sorted(t.code[len(PREFIX):] for t in hiding), ['ARROW', 'LOOKALIKE', 'PIPE'], field)

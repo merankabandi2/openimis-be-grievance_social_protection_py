@@ -244,12 +244,13 @@ class GrievanceAccessControl:
 
     @classmethod
     def _is_unknown(cls, name, config_attr):
-        """True when the loaded configuration has categories (flags) and none
-        of them is `name` (a configured name, see _configured_name)."""
+        """True when the loaded configuration has processed categories (flags)
+        and `name` (a configured name, see _configured_name) is neither among
+        them nor in the flat grievance_types (grievance_flags) list."""
         processed = getattr(TicketConfig, config_attr, None) or {}
-        listed = getattr(TicketConfig, cls._CONFIGURED_NAMES[config_attr], None) or []
-        if not processed and not listed:
+        if not processed:
             return False
+        listed = getattr(TicketConfig, cls._CONFIGURED_NAMES[config_attr], None) or []
         return name not in processed and name not in listed
 
     @staticmethod

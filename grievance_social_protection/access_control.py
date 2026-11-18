@@ -202,8 +202,9 @@ class GrievanceAccessControl:
         processed = getattr(TicketConfig, config_attr, {})
         if not processed or name not in processed:
             # A name the loaded configuration does not know, such as one a
-            # configuration this process has not loaded introduced, is closed.
-            return not cls._is_unknown(name, config_attr)
+            # configuration this process has not loaded introduced, is closed
+            # to every account but a superuser.
+            return not cls._is_unknown(name, config_attr) or cls._is_superuser(user)
 
         info = cls._entry_info(name, config_attr)
         generated_rights = info.get('generated_rights', {})
@@ -252,6 +253,10 @@ class GrievanceAccessControl:
             return user.has_perms(default_perms)
 
         return user.has_perm(str(required_right))
+
+    @staticmethod
+    def _is_superuser(user):
+        return getattr(user, 'is_superuser', False) is True
 
     @classmethod
     def _holds_generated_right(cls, user, name, access_type, config_attr):
@@ -359,6 +364,8 @@ class GrievanceAccessControl:
             """
             if not has_restrictions_func(name):
                 return None  # No restrictions
+            if cls._is_superuser(user) and cls._is_unknown(cls._configured_name(name, config_attr), config_attr):
+                return None
 
             if any(cls._holds_generated_right(user, name, t, config_attr)
                    for t in (cls.PERM_CREATE, cls.PERM_UPDATE, cls.PERM_DELETE)):
@@ -476,6 +483,8 @@ class GrievanceAccessControl:
             category_filter = Q(category__in=cls.stored_category_names(accessible_categories))
             if TicketConfig.default_grievance_type in accessible_categories:
                 category_filter |= Q(category__isnull=True) | Q(category='')
+            if cls._is_superuser(user):
+                category_filter |= cls._unknown_category_q()
             queryset = queryset.filter(category_filter)
 
         # Further filter by flag permissions
@@ -491,7 +500,8 @@ class GrievanceAccessControl:
             # Uses POSIX-compatible patterns (no lookbehind) for PostgreSQL compatibility.
             for flag in restricted_flags:
                 queryset = queryset.exclude(cls._flag_stored_q(flag))
-            queryset = queryset.exclude(cls._unknown_flag_q())
+            if not cls._is_superuser(user):
+                queryset = queryset.exclude(cls._unknown_flag_q())
 
         for ticket_filter in cls.ticket_queryset_filters:
             queryset = ticket_filter(queryset, user)
@@ -738,7 +748,7 @@ class GrievanceAccessControl:
             level = cls.get_user_access_level(user, None, [name])
             if level in by_level:
                 by_level[level].append(cls._flag_stored_q(name))
-        unknown = cls._unknown_names_q()
+        unknown = None if cls._is_superuser(user) else cls._unknown_names_q()
         if unknown is not None:
             by_level[cls.ACCESS_NONE].append(unknown)
         return by_level

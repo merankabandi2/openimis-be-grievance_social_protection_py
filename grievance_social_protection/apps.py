@@ -46,6 +46,7 @@ def _connect_config_check():
         return
     task_prerun.connect(_check_config, dispatch_uid=f"{MODULE_NAME}.config_check_task")
 
+
 DEFAULT_STRING = 'Default'
 # CRON timedelta: {days},{hours}
 DEFAULT_TIME_RESOLUTION = '5,0'

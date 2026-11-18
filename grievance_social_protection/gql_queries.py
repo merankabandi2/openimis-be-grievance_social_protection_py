@@ -210,6 +210,10 @@ def _authenticated(user):
     return user is not None and not user.is_anonymous
 
 
+# Attribute of the GraphQL context holding, per ticket id, the category and
+# flags of the ticket as it stands now (TicketGQLType._current_access_target).
+_CURRENT_ACCESS_CACHE = '_grievance_current_ticket_access'
+
 _ACCESS_LEVELS_FROM_LOWEST = (
     GrievanceAccessControl.ACCESS_NONE,
     GrievanceAccessControl.ACCESS_RESTRICTED,
@@ -243,7 +247,22 @@ class TicketGQLType(DjangoObjectType):
     )
 
     @staticmethod
-    def _access_targets(root):
+    def _current_access_target(root, info):
+        """
+        (category, flags) of root's ticket as it stands now, read once per
+        request and ticket (_CURRENT_ACCESS_CACHE on info.context); None when
+        the ticket no longer exists.
+        """
+        cache = getattr(info.context, _CURRENT_ACCESS_CACHE, None)
+        if cache is None:
+            cache = {}
+            setattr(info.context, _CURRENT_ACCESS_CACHE, cache)
+        if root.id not in cache:
+            cache[root.id] = Ticket.objects.filter(id=root.id).values_list('category', 'flags').first()
+        return cache[root.id]
+
+    @staticmethod
+    def _access_targets(root, info):
         """
         The (category, flags) pairs whose rules apply to root: its own and,
         for a version of the ticket history, those of the ticket as it stands
@@ -251,18 +270,16 @@ class TicketGQLType(DjangoObjectType):
         """
         if getattr(root, SIMPLE_HISTORY_REVERSE_ATTR_NAME, None) is None:
             return [(root.category, root.flags)]
-        if not hasattr(root, '_current_access_target'):
-            root._current_access_target = (
-                Ticket.objects.filter(id=root.id).values_list('category', 'flags').first())
-        if root._current_access_target is None:
+        current = TicketGQLType._current_access_target(root, info)
+        if current is None:
             return []
-        return [(root.category, root.flags), root._current_access_target]
+        return [(root.category, root.flags), current]
 
     @staticmethod
     def resolve_access_level(root, info):
         user = info.context.user
         levels = [GrievanceAccessControl.get_user_access_level(user, category, flags)
-                  for category, flags in TicketGQLType._access_targets(root)]
+                  for category, flags in TicketGQLType._access_targets(root, info)]
         for level in _ACCESS_LEVELS_FROM_LOWEST:
             if level in levels:
                 return level
@@ -279,7 +296,7 @@ class TicketGQLType(DjangoObjectType):
         _access_targets restrict the field: a version of the ticket history
         follows the most restrictive of the version and of the ticket now.
         """
-        targets = TicketGQLType._access_targets(root)
+        targets = TicketGQLType._access_targets(root, info)
         if not targets:
             return True
         return any(TicketGQLType._restricts_field(field_name, info.context.user, category, flags)

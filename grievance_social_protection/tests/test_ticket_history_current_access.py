@@ -7,7 +7,9 @@ filter or an ordering on a field the ticket now hides reveals nothing about
 the value of its versions.
 """
 from django.core.cache import cache
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from graphene import Schema
 from graphene.test import Client
 from graphql_relay import from_global_id
@@ -124,3 +126,16 @@ class TicketHistoryCurrentAccessTest(TestCase):
             rows = self._rows(self.restricted_reader, f'ticketVersion: 1, orderBy: ["{direction}title"]')
             return [row[0] for row in rows if row[0] in ('THCA-CAT', 'THCA-FLAG')]
         self.assertEqual(order(''), order('-'))
+
+    def test_queries_do_not_grow_with_the_versions_of_a_ticket(self):
+        def count():
+            # The first query of the user loads its rights; the second is counted.
+            self._rows(self.restricted_reader, 'showHistory: true')
+            with CaptureQueriesContext(connection) as queries:
+                self._rows(self.restricted_reader, 'showHistory: true')
+            return len(queries)
+        before = count()
+        for version in range(3):
+            self.reclassified.title = f'aaa title {version}'
+            self.reclassified.save(user=self.full_reader)
+        self.assertEqual(count(), before)

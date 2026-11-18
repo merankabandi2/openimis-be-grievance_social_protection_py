@@ -432,7 +432,14 @@ class TicketGQLType(DjangoObjectType):
     @staticmethod
     def resolve_json_ext(root, info):
         json_ext = TicketGQLType._restricted_resolve(root, info, 'json_ext', restricted_value=None)
-        hidden_keys = GrievanceAccessControl.anonymized_json_ext_keys(info.context.user, root.category)
+        targets = TicketGQLType._access_targets(root, info)
+        if not targets:
+            return None
+        # A version of the ticket history hides the keys of its own category
+        # and of the category of the ticket as it stands now.
+        hidden_keys = set().union(*(
+            GrievanceAccessControl.anonymized_json_ext_keys(info.context.user, category)
+            for category, _ in targets))
         if hidden_keys and isinstance(json_ext, dict):
             return {key: value for key, value in json_ext.items() if key not in hidden_keys}
         return json_ext

@@ -84,6 +84,11 @@ class GrievanceAccessControl:
             return cls.configured_category_name(name)
         return name
 
+    # (config_attr, name) pairs whose missing-rights denial was already logged.
+    # An entry is removed once the rights are present, so a later loss is
+    # reported again.
+    _missing_rights_reported = set()
+
     @staticmethod
     def parse_flags(flags):
         """
@@ -143,10 +148,21 @@ class GrievanceAccessControl:
         if not processed or name not in processed:
             return True
 
-        info = processed[name]
+        info = cls._entry_info(name, config_attr)
         generated_rights = info.get('generated_rights', {})
 
-        # If no rights generated, no restrictions
+        report_key = (config_attr, name)
+        if cls._rights_missing(info):
+            if report_key not in cls._missing_rights_reported:
+                cls._missing_rights_reported.add(report_key)
+                logger.error(
+                    "%s '%s' has permissions %s without generated rights. Denying access.",
+                    config_attr, name, sorted(info.get('permissions') or []),
+                )
+            return False
+        cls._missing_rights_reported.discard(report_key)
+
+        # No permissions configured: no restrictions
         if not generated_rights:
             return True
 
@@ -186,10 +202,20 @@ class GrievanceAccessControl:
         and the user holds it. No fallback to the module's base rights."""
         if not user or user.is_anonymous:
             return False
-        processed = getattr(TicketConfig, config_attr, {}) or {}
         name = cls._configured_name(name, config_attr)
-        right = processed.get(name, {}).get('generated_rights', {}).get(access_type)
+        right = cls._entry_info(name, config_attr).get('generated_rights', {}).get(access_type)
         return bool(right) and user.has_perm(str(right))
+
+    @classmethod
+    def _entry_info(cls, name, config_attr):
+        """The configuration of a category/flag ({} when not configured). When
+        its rights are missing because ready() skipped the generation, the
+        generation runs first."""
+        info = (getattr(TicketConfig, config_attr, {}) or {}).get(name, {})
+        if TicketConfig.rights_generation_pending and cls._rights_missing(info):
+            TicketConfig.generate_skipped_rights()
+            info = (getattr(TicketConfig, config_attr, {}) or {}).get(name, {})
+        return info
 
     @classmethod
     def check_category_access(cls, user, category_name, access_type=PERM_READ):
@@ -211,6 +237,14 @@ class GrievanceAccessControl:
         return (cls.check_flag_access(user, flag_name, cls.PERM_READ)
                 or cls.check_flag_access(user, flag_name, cls.PERM_RESTRICTED_READ))
 
+    @staticmethod
+    def _rights_missing(info):
+        """True when a permission type configured on the category/flag has no
+        generated right, as between a configuration reload and the rights
+        generation that follows it."""
+        configured = set(info.get('permissions') or [])
+        return bool(configured - set(info.get('generated_rights') or {}))
+
     @classmethod
     def _has_restrictions(cls, name, config_attr):
         """Check if an item has any access restrictions"""
@@ -218,7 +252,8 @@ class GrievanceAccessControl:
         processed = getattr(TicketConfig, config_attr, {})
         if not processed or name not in processed:
             return False
-        return bool(processed[name].get('generated_rights', {}))
+        info = processed[name]
+        return bool(info.get('generated_rights')) or bool(info.get('permissions'))
 
     @classmethod
     def has_category_restrictions(cls, category_name):
@@ -376,8 +411,8 @@ class GrievanceAccessControl:
             # Get flags that user cannot access at all
             restricted_flags = [
                 flag_name
-                for flag_name, flag_info in TicketConfig.processed_flags.items()
-                if flag_info.get('generated_rights') and not cls.can_view_flag(user, flag_name)
+                for flag_name in TicketConfig.processed_flags
+                if cls.has_flag_restrictions(flag_name) and not cls.can_view_flag(user, flag_name)
             ]
 
             # Exclude tickets carrying a completely restricted flag, whole-token match.

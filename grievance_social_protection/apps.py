@@ -2,14 +2,19 @@ import copy
 import logging
 import sys
 import os
+import threading
 
 from django.apps import AppConfig
-from django.db import OperationalError, ProgrammingError
+from django.db import DEFAULT_DB_ALIAS, OperationalError, ProgrammingError, connections, transaction
+from django.db.models.signals import post_migrate
 from django.core.exceptions import ValidationError
 
 from core.rights_declaration import RightsDeclaration
 
 logger = logging.getLogger(__name__)
+
+# Serialises the access-time retry of the rights generation ready() skipped.
+_rights_generation_lock = threading.Lock()
 
 MODULE_NAME = "grievance_social_protection"
 
@@ -151,6 +156,9 @@ class TicketConfig(AppConfig):
     processed_flags = {}
     unified_resolution_times = {}
     generated_rights = {}  # Store dynamically generated rights
+    # True while the rights generation ready() skipped for want of database
+    # tables has not run; the first access check runs it once.
+    rights_generation_pending = False
 
     @classmethod
     def get_all_permissions(cls):
@@ -193,18 +201,75 @@ class TicketConfig(AppConfig):
 
         # Generate rights only when the database is available and ready.
         # Skip during migrations, when NO_DATABASE is set, or when
-        # core tables (django_content_type, auth_permission) don't exist yet.
+        # core tables (django_content_type, auth_permission) don't exist yet;
+        # the post_migrate handler generates them once the tables exist.
         if os.environ.get("NO_DATABASE") != "True" and 'migrate' not in sys.argv and 'makemigrations' not in sys.argv:
             try:
                 from .rights import GrievanceRightsManager
                 GrievanceRightsManager.generate_automatic_rights(TicketConfig)
+                TicketConfig.rights_generation_pending = False
             except (OperationalError, ProgrammingError):
+                TicketConfig.rights_generation_pending = True
                 logger.info("Database tables not ready, skipping automatic rights generation.")
 
+        post_migrate.connect(
+            self._generate_rights_after_migrate, sender=self,
+            dispatch_uid=f"{MODULE_NAME}.generate_rights_after_migrate")
         register_validator(MODULE_NAME, self._validate_module_config)
         register_reloader(MODULE_NAME, self._reload_module_config)
 
+    @staticmethod
+    def _rights_tables_exist(using):
+        from django.contrib.auth.models import Permission
+        from django.contrib.contenttypes.models import ContentType
+        from core.models import RoleRight
+
+        existing = set(connections[using].introspection.table_names())
+        return all(model._meta.db_table in existing for model in (Permission, ContentType, RoleRight))
+
+    def _generate_rights_after_migrate(self, using=DEFAULT_DB_ALIAS, **kwargs):
+        # The rights manager writes through the default database.
+        if using != DEFAULT_DB_ALIAS or not self._rights_tables_exist(using):
+            return
+        from .rights import GrievanceRightsManager
+        GrievanceRightsManager.generate_automatic_rights(TicketConfig)
+        TicketConfig.rights_generation_pending = False
+
+    @classmethod
+    def generate_skipped_rights(cls):
+        """
+        Run the rights generation ready() skipped, once per process. When it
+        fails, the categories and flags keep the rights they had before it,
+        and those whose rights are missing stay denied.
+        """
+        if not TicketConfig.rights_generation_pending:
+            return
+        with _rights_generation_lock:
+            if not TicketConfig.rights_generation_pending:
+                return
+            TicketConfig.rights_generation_pending = False
+            from .rights import GrievanceRightsManager
+
+            entries = list(TicketConfig.processed_categories.values()) + list(TicketConfig.processed_flags.values())
+            previous_entry_rights = [(info, info.get('generated_rights', {})) for info in entries]
+            previous_rights = TicketConfig.generated_rights
+            try:
+                # A savepoint: a database error leaves the caller's transaction usable.
+                with transaction.atomic():
+                    GrievanceRightsManager.generate_automatic_rights(TicketConfig)
+            except Exception:
+                # Ids assigned before the failure belong to rows the rollback removed.
+                for info, rights in previous_entry_rights:
+                    info['generated_rights'] = rights
+                TicketConfig.generated_rights = previous_rights
+                logger.exception(
+                    "Rights generation failed; categories and flags without "
+                    "generated rights stay denied.")
+
     def __process_config(self, cfg):
+        # Writes the processed structures into cfg only: validation runs it on
+        # configurations that are never loaded, so it leaves TicketConfig as it
+        # is and __load_config publishes the result.
         self.__process_unified_categories(cfg)
         self.__process_unified_flags(cfg)
 
@@ -236,9 +301,41 @@ class TicketConfig(AppConfig):
         return [flag for flag in cfg.get('grievance_flags', []) if not flag or any(c.isspace() for c in flag)]
 
     def _reload_module_config(self, instance):
+        from .rights import GrievanceRightsManager
+
         cfg = self._merge_with_defaults(instance)
         self.__process_config(cfg)
+        self.__build_unified_resolution_times(cfg)
+        previous_categories = TicketConfig.processed_categories
+        previous_flags = TicketConfig.processed_flags
+        previous_rights = TicketConfig.generated_rights
         self.__load_config(cfg)
+        # The reloaded categories and flags carry empty generated_rights until
+        # this runs; GrievanceAccessControl denies them in the meantime.
+        try:
+            GrievanceRightsManager.generate_automatic_rights(TicketConfig)
+            TicketConfig.rights_generation_pending = False
+        except Exception:
+            # The new configuration stays in force. Only entries whose
+            # permissions are unchanged keep their rights; new or changed
+            # restrictions have none and are denied by the access control.
+            self.__carry_over_rights(TicketConfig.processed_categories, previous_categories)
+            self.__carry_over_rights(TicketConfig.processed_flags, previous_flags)
+            TicketConfig.generated_rights = previous_rights
+            logger.exception(
+                "Rights generation failed for the saved configuration; "
+                "entries with changed permissions are denied until it succeeds.")
+            raise
+
+    @staticmethod
+    def __carry_over_rights(current, previous):
+        for name, info in current.items():
+            old = previous.get(name)
+            if old and set(old.get('permissions') or []) == set(info.get('permissions') or []):
+                info['generated_rights'] = old.get('generated_rights', {})
+            else:
+                # Ids assigned before the failure belong to rows the rollback removed.
+                info['generated_rights'] = {}
 
     @classmethod
     def __validate_grievance_dict_fields(cls, cfg, field_name):
@@ -311,20 +408,21 @@ class TicketConfig(AppConfig):
             if resolution_time:
                 cls.__validate_resolution_time_format(resolution_time, f"category '{category_name}'")
 
-        # Build unified resolution times mapping for backward compatibility
-        unified_resolution = {}
+        cls.__build_unified_resolution_times(cfg)
 
-        # Start with legacy default_resolution
-        if dict_field:
-            unified_resolution.update(dict_field)
-
-        # Override/add with category-specific resolution_times
-        for category_name, category_info in processed_categories.items():
+    @classmethod
+    def __build_unified_resolution_times(cls, cfg):
+        """
+        Store in cfg the resolution times by category: the legacy
+        default_resolution entries, overridden by the category-specific
+        resolution_times of the processed categories.
+        """
+        unified_resolution = dict(cfg.get("default_resolution") or {})
+        for category_name, category_info in cfg.get("processed_categories", {}).items():
             resolution_time = category_info.get('resolution_times')
             if resolution_time:
                 unified_resolution[category_name] = resolution_time
 
-        # Store the unified mapping back
         cfg['unified_resolution_times'] = unified_resolution
 
     @classmethod
@@ -509,7 +607,6 @@ class TicketConfig(AppConfig):
         cfg['processed_categories'] = processed_categories
         # Update flat list for backward compatibility
         cfg['grievance_types'] = flat_types
-        TicketConfig.processed_categories = processed_categories
 
     @classmethod
     def __process_unified_flags(cls, cfg):
@@ -556,7 +653,6 @@ class TicketConfig(AppConfig):
         cfg['processed_flags'] = processed_flags
         # Update flat list for backward compatibility
         cfg['grievance_flags'] = flat_flags
-        TicketConfig.processed_flags = processed_flags
 
     @classmethod
     def __load_config(cls, cfg):
